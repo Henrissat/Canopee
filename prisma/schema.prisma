@@ -1,0 +1,214 @@
+// Canopée — après modification : npm run db:push && npm run db:seed
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum LocationKind {
+  INTERIEUR
+  BALCON
+  JARDIN
+  SERRE
+  AUTRE
+}
+
+enum LightLevel {
+  TRES_FAIBLE
+  FAIBLE
+  INDIRECTE
+  VIVE
+  DIRECTE
+}
+
+enum HeatingKind {
+  AUCUN
+  ELECTRIQUE
+  RADIATEUR
+  POELE
+  CLIM
+  AUTRE
+}
+
+enum Orientation {
+  NORD
+  EST
+  SUD
+  OUEST
+  INCONNUE
+}
+
+enum PlantKind {
+  FEUILLAGE
+  FLEURIE
+  SUCCULENTE
+  AROMATIQUE
+  POTAGER
+  ARBRE
+  AUTRE
+}
+
+enum PlantStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+/// Où va l'eau. Distinct de la fréquence.
+enum WateringMethod {
+  SUBSTRAT
+  SUBSTRAT_ET_FEUILLAGE
+  IMMERSION
+  SOUCOUPE
+  BRUMISATION
+}
+
+enum CareKind {
+  ARROSAGE
+  FERTILISATION
+  REMPOTAGE
+  TAILLE
+  BRUMISATION
+  BOUTURAGE
+  TRAITEMENT
+  AUTRE
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  locations Location[]
+  plants    Plant[]
+  cares     CareEvent[]
+  media     Media[]
+}
+
+/// Pièce, balcon ou jardin. Le microclimat est ici, pas sur la plante.
+model Location {
+  id          String       @id @default(cuid())
+  name        String
+  kind        LocationKind
+  light       LightLevel   @default(INDIRECTE)
+  heating     HeatingKind  @default(AUCUN)
+  orientation Orientation  @default(INCONNUE)
+  notes       String?
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plants      Plant[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+/// Fiche espèce partagée (pas par utilisateur). Repères de départ, pas une ordonnance.
+model Species {
+  id                  String          @id @default(cuid())
+  slug                String          @unique
+  commonName          String
+  scientificName      String?
+  kind                PlantKind
+  waterDaysWinter     Int
+  waterDaysSpring     Int
+  waterDaysSummer     Int
+  waterDaysAutumn     Int
+  fertilizeEveryDays  Int?
+  defaultMethod       WateringMethod  @default(SUBSTRAT)
+  summary             String
+  tips                String?
+  plants              Plant[]
+  symptoms            SymptomTip[]
+}
+
+model SymptomTip {
+  id           String  @id @default(cuid())
+  speciesId    String
+  species      Species @relation(fields: [speciesId], references: [id], onDelete: Cascade)
+  symptom      String
+  likelyCauses String
+  whatToDo     String
+  sortOrder    Int     @default(0)
+
+  @@unique([speciesId, symptom])
+  @@index([speciesId])
+}
+
+model Plant {
+  id                 String          @id @default(cuid())
+  nickname           String
+  speciesId          String?
+  species            Species?        @relation(fields: [speciesId], references: [id], onDelete: SetNull)
+  /// Si l'espèce n'est pas dans le catalogue
+  customSpeciesName  String?
+  kind               PlantKind
+  status             PlantStatus     @default(ACTIVE)
+  acquiredAt         DateTime?
+  locationId         String
+  location           Location        @relation(fields: [locationId], references: [id], onDelete: Restrict)
+  /// Null = on reprend la luminosité de l'emplacement
+  light              LightLevel?
+  nearWindow         Boolean         @default(false)
+  nearHeater         Boolean         @default(false)
+  potDiameterCm      Int?
+  wateringMethod     WateringMethod  @default(SUBSTRAT)
+  /// Null sur une saison = repli sur la fiche espèce
+  waterDaysWinter    Int?
+  waterDaysSpring    Int?
+  waterDaysSummer    Int?
+  waterDaysAutumn    Int?
+  trackFertilizer    Boolean         @default(false)
+  fertilizeEveryDays Int?
+  /// Octobre à février : pas d'alerte engrais
+  fertilizePauseWinter Boolean       @default(true)
+  lastWateredAt      DateTime?
+  lastFertilizedAt   DateTime?
+  notes              String?
+  userId             String
+  user               User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media              Media[]
+  cares              CareEvent[]
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@index([userId, status])
+  @@index([locationId])
+  @@index([speciesId])
+  @@index([kind])
+}
+
+model CareEvent {
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plantId     String
+  plant       Plant           @relation(fields: [plantId], references: [id], onDelete: Cascade)
+  kind        CareKind
+  performedAt DateTime        @default(now())
+  method      WateringMethod?
+  notes       String?
+
+  @@index([userId, plantId, performedAt])
+}
+
+model Media {
+  id        String   @id @default(cuid())
+  url       String
+  kind      String   @default("plante")
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plantId   String
+  plant     Plant    @relation(fields: [plantId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([plantId])
+}
